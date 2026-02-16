@@ -9,6 +9,7 @@ import { GitHubAnalyzer } from './engines/skills/GitHubAnalyzer.js';
 import { UpworkHunt } from './hunts/upwork/index.js';
 import { FreelancerHunt } from './hunts/freelancer/index.js';
 import { ProposalGenerator } from './engines/action/ProposalGenerator.js';
+import { AutoApplyEngine } from './engines/action/AutoApplyEngine.js';
 
 console.log(chalk.bold.cyan(`
 ╔═══════════════════════════════════════╗
@@ -337,6 +338,63 @@ program
     } catch (error) {
       console.error(chalk.red('\n❌ Failed to generate proposal'));
       console.error(chalk.gray(error.message + '\n'));
+    }
+  });
+
+// Auto-apply to opportunities
+program
+  .command('auto-apply')
+  .description('Run the auto-apply engine')
+  .option('--dry-run', 'Show what would happen without actually applying')
+  .action(async (options) => {
+    const db = getDatabase();
+    const engine = new AutoApplyEngine(db);
+    
+    if (!engine.enabled && !options.dryRun) {
+      console.log(chalk.yellow('\n⚠️  Auto-apply is disabled\n'));
+      console.log(chalk.gray('To enable:'));
+      console.log(chalk.gray('  Set AUTO_APPLY_ENABLED=true in .env'));
+      console.log(chalk.gray('  Set APPROVAL_MODE (review-first, auto-low-stakes, full-auto)'));
+      console.log(chalk.gray('\nRun with --dry-run to see what would happen\n'));
+      return;
+    }
+    
+    if (options.dryRun) {
+      console.log(chalk.cyan('\n🔍 DRY RUN MODE - No applications will be submitted\n'));
+    }
+    
+    const spinner = ora('Processing opportunities...').start();
+    
+    try {
+      const results = await engine.processOpportunities();
+      
+      spinner.succeed('Processing complete!');
+      
+      const autoApplied = results.filter(r => r.action === 'auto-applied').length;
+      const pendingApproval = results.filter(r => r.action === 'pending-approval').length;
+      const skipped = results.filter(r => r.action === 'skip').length;
+      
+      console.log(chalk.green(`\n✅ Results:\n`));
+      console.log(`   Auto-applied: ${chalk.green(autoApplied)}`);
+      console.log(`   Pending approval: ${chalk.yellow(pendingApproval)}`);
+      console.log(`   Skipped: ${chalk.gray(skipped)}`);
+      
+      if (pendingApproval > 0) {
+        console.log(chalk.yellow('\n📧 Check your email for approval requests\n'));
+      }
+      
+      // Show stats
+      const stats = await engine.getStats('month');
+      
+      console.log(chalk.cyan('\n📊 This Month:\n'));
+      console.log(`   Total applications: ${stats.total_applications}`);
+      console.log(`   Accepted: ${chalk.green(stats.accepted)}`);
+      console.log(`   Pending: ${chalk.yellow(stats.pending)}`);
+      console.log(`   Success rate: ${((stats.success_rate || 0) * 100).toFixed(1)}%\n`);
+      
+    } catch (error) {
+      spinner.fail('Auto-apply failed');
+      console.error(chalk.red(error.message));
     }
   });
 
