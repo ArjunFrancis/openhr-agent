@@ -1,0 +1,50 @@
+{
+  "name": "openhr-agent",
+  "version": "0.1.0",
+  "description": "Personal AI agent that discovers your skills and hunts economic opportunities 24/7",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "gateway": "node src/gateway/index.js",
+    "profile:init": "node src/cli/profile-init.js",
+    "discover": "node src/cli/discover.js",
+    "hunt": "node src/cli/hunt.js",
+    "apply": "node src/cli/apply.js",
+    "dev": "nodemon src/gateway/index.js",
+    "build": "tsc",
+    "test": "vitest",
+    "lint": "eslint src"
+  },
+  "keywords": [
+    "ai-agent",
+    "economic-intelligence",
+    "freelance",
+    "opportunity-hunting",
+    "skills-discovery",
+    "autonomous-agent"
+  ],
+  "author": "Arjun Francis <contact@arjunfrancis.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "pg": "^8.11.0",
+    "playwright": "^1.40.0",
+    "dotenv": "^16.3.1",
+    "commander": "^11.1.0",
+    "chalk": "^5.3.0",
+    "ora": "^7.0.1",
+    "inquirer": "^9.2.12",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "nodemon": "^3.0.2",
+    "vitest": "^1.0.0",
+    "eslint": "^8.55.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
