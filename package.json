@@ -33,7 +33,7 @@
     "inquirer": "^9.2.12",
     "axios": "^1.6.0",
     "cheerio": "^1.0.0-rc.12",
-    "nodemailer": "^6.9.7"
+    "nodemailer": "^8.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
