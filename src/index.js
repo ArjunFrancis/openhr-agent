@@ -7,6 +7,7 @@ import inquirer from 'inquirer';
 import { getDatabase } from './database/index.js';
 import { GitHubAnalyzer } from './engines/skills/GitHubAnalyzer.js';
 import { UpworkHunt } from './hunts/upwork/index.js';
+import { ProposalGenerator } from './engines/action/ProposalGenerator.js';
 
 console.log(chalk.bold.cyan(`
 ╔═══════════════════════════════════════╗
@@ -275,6 +276,63 @@ program
     console.log(`  Earnings: ${chalk.green(`$${earnings.total_earned || 0}`)}`);
     console.log(`  Gigs: ${earnings.total_gigs || 0}`);
     console.log(`  Avg Rate: ${earnings.avg_hourly_rate ? `$${earnings.avg_hourly_rate}/hr` : 'N/A'}\n`);
+  });
+
+// Generate proposal for an opportunity
+program
+  .command('apply')
+  .argument('<number>', 'Opportunity number from list')
+  .description('Generate a proposal for an opportunity')
+  .option('-v, --variations', 'Generate 3 variations with different tones')
+  .action(async (num, options) => {
+    const db = getDatabase();
+    const profile = await db.getProfile();
+    const skills = await db.getSkills();
+    const opportunities = await db.getOpportunities({ minScore: 0.65, limit: 50 });
+    
+    const index = parseInt(num) - 1;
+    
+    if (index < 0 || index >= opportunities.length) {
+      console.log(chalk.red('\n❌ Invalid opportunity number\n'));
+      return;
+    }
+    
+    const opportunity = opportunities[index];
+    
+    console.log(chalk.cyan(`\n📝 Generating proposal for:\n`));
+    console.log(chalk.bold(opportunity.title));
+    console.log(chalk.gray(`Score: ${opportunity.match_score.toFixed(2)} | ${opportunity.platform}\n`));
+    
+    const generator = new ProposalGenerator();
+    
+    try {
+      if (options.variations) {
+        const spinner = ora('Generating 3 variations...').start();
+        const variations = await generator.generateVariations(opportunity, profile, skills);
+        spinner.succeed('Variations generated!');
+        
+        variations.forEach((v, i) => {
+          console.log(chalk.cyan(`\n━━━ Variation ${i + 1}: ${v.tone.toUpperCase()} ━━━\n`));
+          console.log(v.proposal);
+        });
+        
+        console.log(chalk.gray('\n💡 Tip: Copy the one that fits your style best!\n'));
+      } else {
+        const spinner = ora('Generating proposal...').start();
+        const result = await generator.generate(opportunity, profile, skills);
+        spinner.succeed('Proposal generated!');
+        
+        console.log(chalk.cyan('\n━━━ YOUR PROPOSAL ━━━\n'));
+        console.log(result.proposal);
+        
+        console.log(chalk.gray('\n💡 Commands:'));
+        console.log(chalk.gray('  • Get variations: openhr apply ' + num + ' --variations'));
+        console.log(chalk.gray('  • Copy and paste into ' + opportunity.platform + '\n'));
+      }
+    } catch (error) {
+      console.error(chalk.red('\n❌ Failed to generate proposal'));
+      console.error(chalk.gray(error.message + '\n'));
+    }
   });
 
 // Helper: time ago
