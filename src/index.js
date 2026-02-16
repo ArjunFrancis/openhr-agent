@@ -7,6 +7,7 @@ import inquirer from 'inquirer';
 import { getDatabase } from './database/index.js';
 import { GitHubAnalyzer } from './engines/skills/GitHubAnalyzer.js';
 import { UpworkHunt } from './hunts/upwork/index.js';
+import { FreelancerHunt } from './hunts/freelancer/index.js';
 import { ProposalGenerator } from './engines/action/ProposalGenerator.js';
 
 console.log(chalk.bold.cyan(`
@@ -170,6 +171,10 @@ program
     
     if (options.platform === 'all' || options.platform === 'upwork') {
       hunts.push({ name: 'Upwork', hunt: new UpworkHunt() });
+    }
+    
+    if (options.platform === 'all' || options.platform === 'freelancer') {
+      hunts.push({ name: 'Freelancer', hunt: new FreelancerHunt() });
     }
     
     for (const { name, hunt } of hunts) {

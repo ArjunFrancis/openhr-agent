@@ -1,3 +1,6 @@
+import { EmailNotifier } from '../notifications/EmailNotifier.js';
+import { SlackNotifier } from '../notifications/SlackNotifier.js';
+
 /**
  * Base Hunt class
  * All Hunts extend this and implement scan() and score()
@@ -8,6 +11,10 @@ export class Hunt {
     this.name = 'base-hunt';
     this.platform = 'unknown';
     this.frequency = 'hourly'; // 'hourly', 'daily', 'weekly'
+    
+    // Initialize notifiers
+    this.emailNotifier = new EmailNotifier();
+    this.slackNotifier = new SlackNotifier();
   }
 
   /**
@@ -67,6 +74,13 @@ export class Hunt {
       // Save to database
       for (const opp of matched) {
         await db.saveOpportunity(opp);
+      }
+      
+      // Send notifications for high-value opportunities
+      const highValue = matched.filter(o => o.match_score >= 0.80);
+      if (highValue.length > 0) {
+        await this.emailNotifier.notifyOpportunities(highValue);
+        await this.slackNotifier.notifyOpportunities(highValue);
       }
       
       const duration = Date.now() - startTime;
