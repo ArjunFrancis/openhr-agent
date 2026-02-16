@@ -4,6 +4,9 @@ import { program } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import inquirer from 'inquirer';
+import { getDatabase } from './database/index.js';
+import { GitHubAnalyzer } from './engines/skills/GitHubAnalyzer.js';
+import { UpworkHunt } from './hunts/upwork/index.js';
 
 console.log(chalk.bold.cyan(`
 ╔═══════════════════════════════════════╗
@@ -27,16 +30,28 @@ program
   .action(async () => {
     console.log(chalk.yellow('\n🚀 Welcome to OpenHR AI!\n'));
     
+    const db = getDatabase();
+    
+    // Test database connection
+    const connected = await db.testConnection();
+    if (!connected) {
+      console.log(chalk.red('\n❌ Database connection failed'));
+      console.log(chalk.gray('Check your DATABASE_URL in .env\n'));
+      process.exit(1);
+    }
+    
     const answers = await inquirer.prompt([
       {
         type: 'input',
         name: 'github',
         message: 'What\'s your GitHub username?',
+        validate: (input) => input.length > 0 || 'GitHub username required',
       },
       {
         type: 'input',
         name: 'email',
         message: 'Your email:',
+        validate: (input) => input.includes('@') || 'Valid email required',
       },
       {
         type: 'number',
@@ -44,62 +59,232 @@ program
         message: 'Minimum hourly rate ($):',
         default: 50,
       },
+      {
+        type: 'number',
+        name: 'hoursPerWeek',
+        message: 'Available hours per week:',
+        default: 20,
+      },
     ]);
     
-    console.log(chalk.green('\n✅ Profile created!'));
-    console.log(chalk.gray('Next steps:'));
-    console.log(chalk.gray('  1. Run: openhr discover github'));
-    console.log(chalk.gray('  2. Run: openhr hunt start'));
+    const spinner = ora('Creating profile...').start();
+    
+    try {
+      await db.saveProfile({
+        github_username: answers.github,
+        email: answers.email,
+        min_hourly_rate: answers.minRate,
+        availability_hours_per_week: answers.hoursPerWeek,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      
+      spinner.succeed('Profile created!');
+      
+      console.log(chalk.green('\n✅ Setup complete!'));
+      console.log(chalk.gray('\nNext steps:'));
+      console.log(chalk.gray('  1. Run: openhr discover github'));
+      console.log(chalk.gray('  2. Run: openhr hunt'));
+      console.log(chalk.gray('  3. Run: openhr opportunities\n'));
+    } catch (error) {
+      spinner.fail('Profile creation failed');
+      console.error(chalk.red(error.message));
+    }
   });
 
 // Discover skills
 program
   .command('discover')
-  .argument('<source>', 'Source: github, writing, linkedin')
+  .argument('[source]', 'Source: github, writing, linkedin', 'github')
   .description('Discover your skills from various sources')
   .action(async (source) => {
-    const spinner = ora(`Analyzing ${source}...`).start();
+    const db = getDatabase();
+    const profile = await db.getProfile();
     
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    if (!profile) {
+      console.log(chalk.red('\n❌ No profile found'));
+      console.log(chalk.gray('Run: openhr init\n'));
+      process.exit(1);
+    }
     
-    spinner.succeed('Skills discovered!');
-    console.log(chalk.cyan('\nYour Skills:'));
-    console.log('  • Python (8/10) - $75/hr market rate');
-    console.log('  • Technical Writing (7/10) - $50/hr');
-    console.log('  • API Integration (6/10) - $60/hr');
+    if (source === 'github') {
+      const spinner = ora(`Analyzing ${profile.github_username} on GitHub...`).start();
+      
+      try {
+        const analyzer = new GitHubAnalyzer(profile.github_username);
+        const skills = await analyzer.analyze();
+        
+        // Save to database
+        for (const skill of skills) {
+          await db.saveSkill(skill);
+        }
+        
+        spinner.succeed('Skills discovered!');
+        
+        console.log(chalk.cyan('\n📊 Your Skills:\n'));
+        
+        const topSkills = skills.slice(0, 10);
+        for (const skill of topSkills) {
+          const profBar = '█'.repeat(skill.proficiency);
+          console.log(
+            `  ${chalk.green('•')} ${chalk.bold(skill.name)} ${chalk.gray(`(${skill.proficiency}/10)`)}`
+          );
+          console.log(
+            `    ${chalk.gray(profBar)} ${chalk.yellow(`$${skill.avg_hourly_rate}/hr market rate`)}`
+          );
+        }
+        
+        console.log(chalk.gray(`\n... and ${skills.length - 10} more skills`));
+        console.log(chalk.gray('\nNext: openhr hunt\n'));
+      } catch (error) {
+        spinner.fail('Skills discovery failed');
+        console.error(chalk.red(error.message));
+        
+        if (error.message.includes('403')) {
+          console.log(chalk.gray('\nTip: Add GITHUB_TOKEN to .env for higher rate limits\n'));
+        }
+      }
+    } else {
+      console.log(chalk.yellow(`\n📝 ${source} analyzer coming soon!\n`));
+    }
   });
 
 // Start hunting
 program
   .command('hunt')
   .description('Start hunting for opportunities')
-  .action(async () => {
-    const spinner = ora('Scanning platforms...').start();
+  .option('-p, --platform <name>', 'Specific platform (upwork, freelancer)', 'all')
+  .action(async (options) => {
+    const db = getDatabase();
+    const skills = await db.getSkills();
     
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    if (skills.length === 0) {
+      console.log(chalk.red('\n❌ No skills found'));
+      console.log(chalk.gray('Run: openhr discover github\n'));
+      process.exit(1);
+    }
     
-    spinner.succeed('Hunt complete!');
-    console.log(chalk.green('\n💰 Found 23 opportunities'));
-    console.log('   High match (>0.80): 5');
-    console.log('   Medium match (0.65-0.80): 12');
-    console.log('\n' + chalk.yellow('Run: openhr opportunities list'));
+    console.log(chalk.cyan(`\n🏹 Starting hunt with ${skills.length} skills...\n`));
+    
+    const hunts = [];
+    
+    if (options.platform === 'all' || options.platform === 'upwork') {
+      hunts.push({ name: 'Upwork', hunt: new UpworkHunt() });
+    }
+    
+    for (const { name, hunt } of hunts) {
+      const spinner = ora(`Scanning ${name}...`).start();
+      
+      try {
+        const results = await hunt.run(skills, db);
+        
+        spinner.succeed(`${name} scan complete: ${results.length} matches`);
+      } catch (error) {
+        spinner.fail(`${name} scan failed: ${error.message}`);
+      }
+    }
+    
+    const opportunities = await db.getOpportunities({ minScore: 0.65, limit: 50 });
+    
+    console.log(chalk.green(`\n💰 Found ${opportunities.length} opportunities`));
+    
+    const highMatch = opportunities.filter(o => o.match_score >= 0.80).length;
+    const medMatch = opportunities.filter(o => o.match_score >= 0.65 && o.match_score < 0.80).length;
+    
+    console.log(`   ${chalk.green('High match')} (>0.80): ${highMatch}`);
+    console.log(`   ${chalk.yellow('Medium match')} (0.65-0.80): ${medMatch}`);
+    console.log(chalk.gray('\nRun: openhr opportunities\n'));
   });
 
 // List opportunities
 program
   .command('opportunities')
   .description('List discovered opportunities')
-  .action(() => {
+  .option('-s, --score <min>', 'Minimum match score', '0.75')
+  .option('-l, --limit <num>', 'Max results', '10')
+  .action(async (options) => {
+    const db = getDatabase();
+    const opportunities = await db.getOpportunities({
+      minScore: parseFloat(options.score),
+      limit: parseInt(options.limit),
+    });
+    
+    if (opportunities.length === 0) {
+      console.log(chalk.yellow('\n📭 No opportunities found'));
+      console.log(chalk.gray('Run: openhr hunt\n'));
+      return;
+    }
+    
     console.log(chalk.bold.cyan('\n📊 Your Opportunities\n'));
     
-    console.log(chalk.green('[1] 🔥 Python API Integration (Score: 0.89)'));
-    console.log('    $60-80/hr | Upwork | Posted 2h ago\n');
+    opportunities.forEach((opp, i) => {
+      const scoreColor = opp.match_score >= 0.85 ? chalk.green : chalk.yellow;
+      const emoji = opp.match_score >= 0.85 ? '🔥' : '📊';
+      
+      console.log(scoreColor(`[${i + 1}] ${emoji} ${opp.title} (Score: ${opp.match_score.toFixed(2)})`));
+      
+      const payRange = opp.pay_min && opp.pay_max 
+        ? `$${opp.pay_min}-${opp.pay_max}${opp.pay_type === 'hourly' ? '/hr' : ''}`
+        : opp.pay_min 
+        ? `$${opp.pay_min}${opp.pay_type === 'hourly' ? '/hr' : ''}`
+        : 'Rate not listed';
+      
+      console.log(`    ${payRange} | ${opp.platform} | ${chalk.gray(timeAgo(opp.discovered_at))}`);
+      
+      if (opp.required_skills && opp.required_skills.length > 0) {
+        console.log(`    Skills: ${opp.required_skills.slice(0, 4).join(', ')}`);
+      }
+      
+      if (opp.client_info && opp.client_info.rating) {
+        const stars = '⭐'.repeat(Math.round(opp.client_info.rating));
+        console.log(`    Client: ${stars}`);
+      }
+      
+      console.log(chalk.gray(`    ${opp.url}\n`));
+    });
     
-    console.log(chalk.green('[2] 🔥 Technical Writer - AI/ML (Score: 0.85)'));
-    console.log('    $50-70/hr | Upwork | Posted 4h ago\n');
-    
-    console.log(chalk.yellow('[3] 📊 Data Dashboard (Score: 0.82)'));
-    console.log('    Fixed $1200 | Freelancer | Posted 6h ago\n');
+    console.log(chalk.gray('Actions:'));
+    console.log(chalk.gray('  • View in browser: copy URL above'));
+    console.log(chalk.gray('  • Apply: openhr apply <number> (coming soon)'));
+    console.log(chalk.gray('  • Filter: openhr opportunities --score 0.85\n'));
   });
+
+// Profile status
+program
+  .command('status')
+  .description('Show your profile and stats')
+  .action(async () => {
+    const db = getDatabase();
+    const profile = await db.getProfile();
+    const skills = await db.getSkills();
+    const opportunities = await db.getOpportunities({ limit: 100 });
+    const earnings = await db.getEarningsSummary('month');
+    
+    console.log(chalk.bold.cyan('\n👤 Your Profile\n'));
+    
+    if (profile) {
+      console.log(`GitHub: ${chalk.green(profile.github_username)}`);
+      console.log(`Email: ${profile.email}`);
+      console.log(`Min Rate: ${chalk.yellow(`$${profile.min_hourly_rate}/hr`)}`);
+      console.log(`Availability: ${profile.availability_hours_per_week}hrs/week`);
+    }
+    
+    console.log(chalk.bold.cyan('\n📊 Stats\n'));
+    console.log(`Skills: ${chalk.green(skills.length)}`);
+    console.log(`Opportunities Found: ${chalk.green(opportunities.length)}`);
+    console.log(`This Month:`);
+    console.log(`  Earnings: ${chalk.green(`$${earnings.total_earned || 0}`)}`);
+    console.log(`  Gigs: ${earnings.total_gigs || 0}`);
+    console.log(`  Avg Rate: ${earnings.avg_hourly_rate ? `$${earnings.avg_hourly_rate}/hr` : 'N/A'}\n`);
+  });
+
+// Helper: time ago
+function timeAgo(date) {
+  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+  
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
 
 program.parse();

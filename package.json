@@ -5,15 +5,12 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "gateway": "node src/gateway/index.js",
-    "profile:init": "node src/cli/profile-init.js",
-    "discover": "node src/cli/discover.js",
-    "hunt": "node src/cli/hunt.js",
-    "apply": "node src/cli/apply.js",
-    "dev": "nodemon src/gateway/index.js",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
     "build": "tsc",
     "test": "vitest",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "db:init": "psql -U postgres -c 'CREATE DATABASE IF NOT EXISTS openhr;' && psql -U postgres openhr < src/database/schema.sql"
   },
   "keywords": [
     "ai-agent",
