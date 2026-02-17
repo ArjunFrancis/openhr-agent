@@ -6,10 +6,15 @@ import ora from 'ora';
 import inquirer from 'inquirer';
 import { getDatabase } from './database/index.js';
 import { GitHubAnalyzer } from './engines/skills/GitHubAnalyzer.js';
+import { LinkedInAnalyzer } from './engines/skills/LinkedInAnalyzer.js';
+import { ContentAnalyzer } from './engines/content/ContentAnalyzer.js';
 import { UpworkHunt } from './hunts/upwork/index.js';
 import { FreelancerHunt } from './hunts/freelancer/index.js';
+import { IndeedHunt } from './hunts/indeed/index.js';
 import { ProposalGenerator } from './engines/action/ProposalGenerator.js';
 import { AutoApplyEngine } from './engines/action/AutoApplyEngine.js';
+import { CoFounderMatcher } from './engines/matching/CoFounderMatcher.js';
+import { PassiveIncomeScanner } from './engines/passive-income/PassiveIncomeScanner.js';
 
 console.log(chalk.bold.cyan(`
 ╔═══════════════════════════════════════╗
@@ -394,6 +399,96 @@ program
       
     } catch (error) {
       spinner.fail('Auto-apply failed');
+      console.error(chalk.red(error.message));
+    }
+  });
+
+// Find co-founder matches
+program
+  .command('find-cofounder')
+  .description('Find potential co-founders with complementary skills')
+  .action(async () => {
+    const db = getDatabase();
+    const profile = await db.getProfile();
+    const skills = await db.getSkills();
+    
+    if (!profile) {
+      console.log(chalk.red('\n❌ No profile found. Run: openhr init\n'));
+      return;
+    }
+    
+    console.log(chalk.cyan('\n🤝 Searching for co-founder matches...\n'));
+    const spinner = ora('Scanning YC, AngelList, Indie Hackers...').start();
+    
+    try {
+      const matcher = new CoFounderMatcher(db);
+      const matches = await matcher.findMatches(profile, skills);
+      
+      spinner.succeed(`Found ${matches.length} potential co-founders!`);
+      
+      if (matches.length === 0) {
+        console.log(chalk.gray('\nNo matches found yet. Try again later!\n'));
+        return;
+      }
+      
+      console.log(chalk.cyan('\n🔥 Top Matches:\n'));
+      
+      matches.slice(0, 5).forEach((match, i) => {
+        console.log(`\n[${i + 1}] ${chalk.bold(match.name)} (${(match.score * 100).toFixed(0)}% match)`);
+        console.log(`    Skills: ${match.skills.map(s => s.name).slice(0, 5).join(', ')}`);
+        console.log(`    Source: ${match.source}`);
+        console.log(`    ${chalk.gray(match.bio?.slice(0, 100) || 'No bio')}`);
+      });
+      
+      console.log(chalk.gray('\n💡 Tip: Use these matches to reach out on LinkedIn/Twitter\n'));
+    } catch (error) {
+      spinner.fail('Co-founder search failed');
+      console.error(chalk.red(error.message));
+    }
+  });
+
+// Passive income opportunities
+program
+  .command('passive-income')
+  .description('Discover passive income opportunities based on your skills')
+  .action(async () => {
+    const db = getDatabase();
+    const profile = await db.getProfile();
+    const skills = await db.getSkills();
+    
+    if (!skills || skills.length === 0) {
+      console.log(chalk.red('\n❌ No skills found. Run: openhr discover github\n'));
+      return;
+    }
+    
+    console.log(chalk.cyan('\n💰 Scanning for passive income opportunities...\n'));
+    const spinner = ora('Analyzing courses, products, content...').start();
+    
+    try {
+      const scanner = new PassiveIncomeScanner(db);
+      const opportunities = await scanner.scan(skills, profile);
+      
+      spinner.succeed(`Found ${opportunities.length} opportunities!`);
+      
+      if (opportunities.length === 0) {
+        console.log(chalk.gray('\nNo opportunities found for your skill set yet.\n'));
+        return;
+      }
+      
+      console.log(chalk.cyan('\n🔥 Top Opportunities:\n'));
+      
+      opportunities.slice(0, 5).forEach((opp, i) => {
+        console.log(`\n[${i + 1}] ${chalk.bold(opp.title)} (${(opp.score * 100).toFixed(0)}% fit)`);
+        console.log(`    Type: ${opp.type}`);
+        console.log(`    Potential: ${chalk.green(opp.potential_monthly)}`);
+        console.log(`    Time: ${opp.time_investment} upfront, ${opp.ongoing_effort} ongoing`);
+        console.log(`    ${chalk.gray(opp.description)}`);
+      });
+      
+      console.log(chalk.cyan('\n📚 Action Plans:\n'));
+      console.log(chalk.gray('Get detailed action plans with: openhr passive-income --details\n'));
+    } catch (error) {
+      spinner.fail('Passive income scan failed');
       console.error(chalk.red(error.message));
     }
   });
